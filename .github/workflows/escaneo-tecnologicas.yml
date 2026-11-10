@@ -1,0 +1,62 @@
+
+name: Escaner de tecnologicas USA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  escaneo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Escanear tecnologicas
+        shell: bash
+        run: |
+          set +e
+          python3 trader-scanner/scan.py daily \
+            --symbols AAPL,MSFT,NVDA,AMD,AVGO,META,GOOGL,AMZN,TSLA,PLTR \
+            --min-volume 0 \
+            --show 20
+          resultado=$?
+          set -e
+
+          echo "Codigo del escaner: $resultado"
+          test -f trader/watchlist.json
+
+          python3 - <<'PY'
+          import json
+          import sys
+
+          with open("trader/watchlist.json") as f:
+              datos = json.load(f)
+
+          print("Fecha de datos:", datos.get("as_of"))
+          print("Acciones:", datos.get("universe"))
+          print("Graficos analizados:", datos.get("scanned"))
+          print("Sin datos:", datos.get("failed"))
+          print("Coincidencias:", len(datos.get("hits", [])))
+
+          if not datos.get("as_of") or datos.get("scanned", 0) < 1:
+              print("ERROR: no hay datos de mercado suficientes")
+              sys.exit(1)
+          PY
+
+      - name: Guardar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-tecnologicas
+          path: trader/watchlist.json
+          if-no-files-found: warn
