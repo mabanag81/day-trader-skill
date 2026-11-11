@@ -3,6 +3,9 @@ name: Escaner intradia tecnologicas USA
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '50 15 * * 1-5'
+      timezone: 'Europe/Madrid'
 
 permissions:
   contents: read
