@@ -62,3 +62,119 @@ jobs:
           name: resultados-intradia
           path: trader/watchlist.json
           if-no-files-found: warn
+
+
+      - name: Enviar resultados a Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ESTADO_ESCANEO: ${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN")
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+          if not token or not chat_id:
+              sys.exit("ERROR: faltan secretos de Telegram.")
+
+          enlace = (
+              f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          )
+
+          mensaje = (
+              "WALL STREET SCANNER | ERROR\n"
+              "No se ha podido completar el escaneo intradia.\n"
+              f"Revisar: {enlace}"
+          )
+
+          ruta = Path("trader/watchlist.json")
+
+          if ruta.exists():
+              try:
+                  datos = json.loads(ruta.read_text(encoding="utf-8"))
+
+                  if (
+                      os.environ.get("ESTADO_ESCANEO") == "success"
+                      and datos.get("mode") == "orb"
+                      and datos.get("scanned", 0) > 0
+                  ):
+                      hits = datos.get("hits", [])
+
+                      lineas = [
+                          "WALL STREET SCANNER | ORB 15 MIN",
+                          f"Corte NY: {datos.get('as_of')}",
+                          f"Analizadas: {datos.get('scanned')}/{datos.get('universe')}",
+                          f"Sin datos: {datos.get('failed')}",
+                          f"Rupturas: {len(hits)}",
+                          "",
+                      ]
+
+                      if hits:
+                          for h in hits[:10]:
+                              precio = h.get("price")
+                              nivel = h.get("or_high")
+                              porcentaje = h.get("pct_over")
+
+                              def fmt(v):
+                                  return f"{v:.2f}" if isinstance(v, (int, float)) else "s/d"
+
+                              lineas.append(
+                                  f"{h.get('symbol', '?')} | "
+                                  f"Precio: {fmt(precio)} USD | "
+                                  f"Ruptura: +{fmt(porcentaje)}% | "
+                                  f"OR High: {fmt(nivel)} USD | "
+                                  f"{h.get('at', '?')} ET"
+                              )
+                      else:
+                          lineas.append(
+                              "Sin rupturas detectadas en las acciones analizadas."
+                          )
+
+                      if datos.get("failed", 0):
+                          lineas.append("ATENCION: cobertura parcial de datos.")
+
+                      lineas.extend([
+                          "",
+                          "Patrones tecnicos, no senales de compra.",
+                          f"Informe completo: {enlace}",
+                      ])
+                      mensaje = "\n".join(lineas)
+
+              except (OSError, ValueError, TypeError):
+                  print("Informe no valido. Se enviara aviso de error.")
+
+          contenido = json.dumps({
+              "chat_id": chat_id,
+              "text": mensaje[:3900],
+              "disable_web_page_preview": True
+          }).encode("utf-8")
+
+          solicitud = Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=contenido,
+              headers={"Content-Type": "application/json"},
+              method="POST"
+          )
+
+          try:
+              with urlopen(solicitud, timeout=20) as respuesta:
+                  resultado = json.load(respuesta)
+          except HTTPError as error:
+              sys.exit(f"ERROR Telegram HTTP {error.code}.")
+          except URLError:
+              sys.exit("ERROR: no se pudo conectar con Telegram.")
+
+          if not resultado.get("ok"):
+              sys.exit("ERROR: Telegram no confirmo el mensaje.")
+
+          print("Informe enviado correctamente a Telegram.")
+          PY
