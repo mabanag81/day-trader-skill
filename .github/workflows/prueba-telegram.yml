@@ -1,0 +1,66 @@
+
+name: Prueba de Telegram
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prueba:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Enviar mensaje de prueba
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError, URLError
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN")
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+          if not token or not chat_id:
+              sys.exit("ERROR: faltan secretos de Telegram.")
+
+          datos = json.dumps({
+              "chat_id": chat_id,
+              "text": (
+                  "Wall Street Scanner\n"
+                  "Conexion con GitHub Actions correcta.\n"
+                  "Este es un mensaje de prueba.\n"
+                  "No se ha realizado ninguna operacion."
+              )
+          }).encode("utf-8")
+
+          solicitud = Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=datos,
+              headers={"Content-Type": "application/json"},
+              method="POST"
+          )
+
+          try:
+              with urlopen(solicitud, timeout=20) as respuesta:
+                  resultado = json.load(respuesta)
+          except HTTPError as error:
+              sys.exit(
+                  f"ERROR Telegram HTTP {error.code}. "
+                  "Comprueba el chat y pulsa Start en el bot."
+              )
+          except URLError:
+              sys.exit("ERROR: no se pudo contactar con Telegram.")
+
+          if not resultado.get("ok"):
+              sys.exit("ERROR: Telegram no confirmó el mensaje.")
+
+          print("Mensaje enviado correctamente a Telegram.")
+          PY
